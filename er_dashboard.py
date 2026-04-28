@@ -87,12 +87,16 @@ def classify_buff_nerf(row) -> str:
 @st.cache_data
 def load_data() -> pd.DataFrame:
     df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
-    df["유형"]   = df.apply(classify_type,     axis=1)
+    df["유형"]    = df.apply(classify_type,      axis=1)
     df["버프너프"] = df.apply(classify_buff_nerf, axis=1)
-    # 버전 정렬용 키
+    # 방어구·코발트 유형 제거 + 캐릭터 화이트리스트 적용
+    df = df[
+        ~df["유형"].str.contains("방어구|코발트", na=False) &
+        df["캐릭터"].isin(ER_CHARACTERS)
+    ]
     df["_ver_key"] = df["패치버전"].apply(version_key)
     df = df.sort_values("_ver_key").drop(columns=["_ver_key"])
-    return df
+    return df.reset_index(drop=True)
 
 
 def is_character_row(df: pd.DataFrame) -> pd.Series:
@@ -101,6 +105,47 @@ def is_character_row(df: pd.DataFrame) -> pd.Series:
         df["유형"].isin(["실험체 스킬", "실험체 기본 스탯"]) &
         df["캐릭터"].isin(ER_CHARACTERS)
     )
+
+
+def is_hotfix(version: str) -> bool:
+    return bool(re.search(r"[a-z]$", str(version)))
+
+
+def build_priority_table(df: pd.DataFrame) -> tuple[str, bool, pd.DataFrame]:
+    """최신 패치 기준 테스트 우선순위 테이블.
+
+    점수 = |변경후 평균 - 변경전 평균| / 변경전 평균 × 100
+    너프는 유저 체감이 크므로 1.5배 가중치 적용.
+    """
+    versions = sorted(df["패치버전"].unique(), key=version_key)
+    if not versions:
+        return "", False, pd.DataFrame()
+
+    latest = versions[-1]
+    hotfix = is_hotfix(latest)
+    patch_df = df[df["패치버전"] == latest].copy()
+
+    def score(row) -> float:
+        before = avg_numbers(row["변경전"])
+        after  = avg_numbers(row["변경후"])
+        if before is None or after is None or before == 0:
+            return 0.0
+        pct = abs(after - before) / abs(before) * 100
+        return round(pct * (1.5 if row["버프너프"] == "너프" else 1.0), 1)
+
+    patch_df["_score"] = patch_df.apply(score, axis=1)
+    patch_df = (
+        patch_df[patch_df["_score"] > 0]
+        .sort_values("_score", ascending=False)
+        .reset_index(drop=True)
+    )
+    patch_df.insert(0, "순위", range(1, len(patch_df) + 1))
+
+    display = patch_df[[
+        "순위", "유형", "캐릭터", "스킬", "항목", "변경전", "변경후", "버프너프", "_score"
+    ]].rename(columns={"버프너프": "구분", "_score": "점수(%)"})
+
+    return latest, hotfix, display
 
 
 # ── 시각화 헬퍼 ────────────────────────────────────────────────────────────────
@@ -328,6 +373,56 @@ def main():
 
     st.markdown("---")
 
+    # ── 이번 패치 테스트 우선순위 ─────────────────────────────────────────────
+    latest_ver, hotfix_flag, prio_df = build_priority_table(df)
+
+    if not prio_df.empty:
+        badge = "🚨 **핫픽스**" if hotfix_flag else ""
+        st.subheader(f"🎯 이번 패치 테스트 우선순위  `{latest_ver}` {badge}")
+        st.caption(
+            "변경 전/후 수치 차이(%)를 기준으로 산정. "
+            "너프 항목은 유저 체감이 크므로 1.5배 가중치 적용. "
+            "🔴 1~3위는 최우선 검증 대상."
+        )
+
+        def highlight_priority(row):
+            if row["순위"] <= 3:
+                return ["background-color: #FADBD8; color: #922B21; font-weight: bold"] * len(row)
+            if row["순위"] <= 10:
+                return ["background-color: #FEF9E7; color: black"] * len(row)
+            return ["color: black"] * len(row)
+
+        show_n = st.slider("표시 건수", 5, min(50, len(prio_df)), min(20, len(prio_df)), key="prio_n")
+        styled = (
+            prio_df.head(show_n)
+            .style.apply(highlight_priority, axis=1)
+            .format({"점수(%)": "{:.1f}"})
+        )
+        st.dataframe(
+            styled,
+            use_container_width=True,
+            height=min(60 + show_n * 35, 600),
+            column_config={
+                "순위":    st.column_config.NumberColumn(width="small"),
+                "유형":    st.column_config.TextColumn(width="medium"),
+                "캐릭터":  st.column_config.TextColumn(width="small"),
+                "스킬":    st.column_config.TextColumn(width="medium"),
+                "항목":    st.column_config.TextColumn(width="medium"),
+                "변경전":  st.column_config.TextColumn(width="medium"),
+                "변경후":  st.column_config.TextColumn(width="medium"),
+                "구분":    st.column_config.TextColumn(width="small"),
+                "점수(%)": st.column_config.NumberColumn(width="small"),
+            },
+        )
+
+        # 구분(버프/너프) 비율 요약
+        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1.metric("이번 패치 총 변경", len(prio_df))
+        col_s2.metric("🔴 너프 건수", (prio_df["구분"] == "너프").sum())
+        col_s3.metric("🟢 버프 건수", (prio_df["구분"] == "버프").sum())
+
+    st.markdown("---")
+
     # ── 탭
     tab1, tab2, tab3 = st.tabs(["📊 패치 개요", "🏆 캐릭터 순위", "🔍 캐릭터 검색"])
 
@@ -360,7 +455,17 @@ def main():
             vdf[["유형","캐릭터","스킬","항목","변경전","변경후","버프너프"]]
             .rename(columns={"버프너프": "구분"})
             .reset_index(drop=True),
-            use_container_width=True, height=340,
+            use_container_width=True,
+            height=340,
+            column_config={
+                "유형":   st.column_config.TextColumn(width="medium"),
+                "캐릭터": st.column_config.TextColumn(width="small"),
+                "스킬":   st.column_config.TextColumn(width="medium"),
+                "항목":   st.column_config.TextColumn(width="medium"),
+                "변경전": st.column_config.TextColumn(width="medium"),
+                "변경후": st.column_config.TextColumn(width="medium"),
+                "구분":   st.column_config.TextColumn(width="small"),
+            },
         )
 
     # ────────────────── Tab 2: 캐릭터 순위 ───────────────────────────────────
@@ -474,21 +579,28 @@ def main():
 
                 def highlight_bn(row):
                     if row["구분"] == "버프":
-                        return ["background-color: #D5F5E3"] * len(row)
+                        return ["background-color: #D5F5E3; color: black"] * len(row)
                     if row["구분"] == "너프":
-                        return ["background-color: #FADBD8"] * len(row)
-                    return [""] * len(row)
+                        return ["background-color: #FADBD8; color: black"] * len(row)
+                    return ["color: black"] * len(row)
 
                 display_df = char_df[
                     ["패치버전", "유형", "스킬", "항목", "변경전", "변경후", "버프너프"]
                 ].rename(columns={"버프너프": "구분"}).reset_index(drop=True)
 
                 st.dataframe(
-                    display_df.style.apply(
-                        lambda row: highlight_bn(row), axis=1
-                    ),
+                    display_df.style.apply(highlight_bn, axis=1),
                     use_container_width=True,
                     height=min(60 + len(display_df) * 35, 500),
+                    column_config={
+                        "패치버전": st.column_config.TextColumn(width="small"),
+                        "유형":    st.column_config.TextColumn(width="medium"),
+                        "스킬":    st.column_config.TextColumn(width="medium"),
+                        "항목":    st.column_config.TextColumn(width="medium"),
+                        "변경전":  st.column_config.TextColumn(width="medium"),
+                        "변경후":  st.column_config.TextColumn(width="medium"),
+                        "구분":    st.column_config.TextColumn(width="small"),
+                    },
                 )
 
                 # 스킬별 항목 변화 수치 추이 (숫자값인 경우만)
