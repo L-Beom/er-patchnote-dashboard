@@ -1,8 +1,9 @@
 """
 이터널리턴 패치노트 → TC(테스트 케이스) 변환기
-- 입력: er_patchnotes/patchnote_changes.csv
-- 출력: er_patchnotes/patchnote_TC.xlsx
+- 입력: patchnote_changes.csv  (스크립트와 같은 폴더)
+- 출력: patchnote_TC.xlsx      (스크립트와 같은 폴더)
 - 컬럼: TC ID | 테스트 항목 | 사전조건 | 테스트 절차 | 기댓값 | 결과
+- 대상: 실험체 스킬 / 실험체 기본 스탯 유형만 포함
 """
 
 import csv
@@ -14,10 +15,30 @@ from openpyxl.styles import (
 )
 from openpyxl.utils import get_column_letter
 
-INPUT_CSV  = Path("er_patchnotes/patchnote_changes.csv")
-OUTPUT_XLS = Path("er_patchnotes/patchnote_TC.xlsx")
+_DIR       = Path(__file__).parent
+INPUT_CSV  = _DIR / "patchnote_changes.csv"
+OUTPUT_XLS = _DIR / "patchnote_TC.xlsx"
 
 ARMOR_SLOTS = frozenset({"옷", "모자", "머리", "팔", "발", "목", "장갑", "허리", "반지", "귀걸이", "보조"})
+
+# 실험체(캐릭터) 화이트리스트 — 이 목록에 없는 캐릭터 칸은 TC 생성에서 제외
+CHARACTER_WHITELIST = frozenset({
+    "가넷", "나딘", "나타폰", "다니엘", "다르코", "데비&마를렌", "띠아",
+    "라우라", "레녹스", "레니", "레온", "로지", "르노어", "리 다이린",
+    "마르티나", "마이", "마커스", "매그너스", "미르카",
+    "바냐", "바바라", "버니스", "비앙카", "블레어",
+    "샬럿", "셀린", "쇼우", "쇼이치", "수아", "슈린", "시셀라", "실비아",
+    "아델라", "아디나", "아드리아나", "아르다", "아비게일", "아야", "아이솔", "아이작",
+    "알렉스", "알론소", "얀", "에스텔", "에이든", "에키온", "엘레나", "엠마",
+    "유민", "유스티나", "유키", "이렘", "이바", "이슈트반", "이안", "일레븐",
+    "자히르", "재키", "제니",
+    "카밀로", "카티야", "캐시", "칼라", "케네스", "코렐라인", "클로에", "키아라",
+    "타지아", "테오도르",
+    "펜리르", "펠릭스", "프리야", "피오라", "피올로",
+    "하트", "헤이즈", "헨리", "현우", "혜진", "히스이",
+    "니아", "루크", "윌리엄",
+    "츠바메",
+})
 
 # ── 유형 분류 ──────────────────────────────────────────────────────────────────
 
@@ -31,8 +52,13 @@ def classify(row: dict) -> str:
     if skill in ARMOR_SLOTS:
         return "armor"
     if re.search(r"\((?:[QWERPD]|과전하|패시브)", skill):
-        return "char_skill"
-    return "char_stat"
+        tc_type = "char_skill"
+    else:
+        tc_type = "char_stat"
+    # 캐릭터 화이트리스트에 없는 항목은 제외
+    if char not in CHARACTER_WHITELIST:
+        return "non_char"
+    return tc_type
 
 
 # ── TC 필드 생성 ───────────────────────────────────────────────────────────────
@@ -154,11 +180,11 @@ BUILDERS = {
     "cobalt_infusion":  build_tc_cobalt_infusion,
 }
 
+# TC 생성 대상 유형 — 실험체 스킬/기본 스탯만 포함
+INCLUDE_TYPES = frozenset({"char_skill", "char_stat"})
+
 # 유형 정렬 순서 (버전 내 정렬 기준)
-TYPE_ORDER = {
-    "char_skill": 0, "char_stat": 1, "armor": 2,
-    "cobalt_infusion": 3, "cobalt_mode": 4,
-}
+TYPE_ORDER = {"char_skill": 0, "char_stat": 1}
 
 
 # ── Excel 스타일 ───────────────────────────────────────────────────────────────
@@ -252,6 +278,7 @@ def generate_tc(rows: list[dict]) -> list[dict]:
     for version in sorted(by_version, key=ver_key, reverse=True):
         version_rows = by_version[version]
         # 유형 순으로 정렬
+        version_rows = [r for r in version_rows if classify(r) in INCLUDE_TYPES]
         version_rows.sort(key=lambda r: (TYPE_ORDER.get(classify(r), 9), r["캐릭터"], r["스킬"]))
 
         seq = 1
