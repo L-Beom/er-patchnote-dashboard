@@ -2,7 +2,7 @@ name: 이터널리턴 패치노트 자동 업데이트
 
 on:
   schedule:
-    - cron: '0 0 * * 3'   # 매주 수요일 00:00 UTC = 09:00 KST
+    - cron: '0 3 * * 4'   # 매주 목요일 03:00 UTC = 12:00 KST
   workflow_dispatch:
     inputs:
       force:
