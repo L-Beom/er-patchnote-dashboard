@@ -30,6 +30,7 @@
 | TC 생성 | Python, openpyxl |
 | 대시보드 | Streamlit, Plotly, pandas |
 | 배포 | Streamlit Community Cloud |
+| 자동화 | GitHub Actions (cron 스케줄, workflow_dispatch) |
 
 ---
 
@@ -69,8 +70,39 @@ er-patchnote-dashboard/
 ├── er_patchnote_parser.py    # 파서
 ├── er_tc_generator.py        # TC 생성기
 ├── er_dashboard.py           # Streamlit 대시보드
+├── pipeline.py               # 자동화 파이프라인 (크롤링→파싱→TC생성 통합 실행)
 ├── patchnote_changes.csv     # 파싱 결과 데이터 (대시보드 입력)
+├── patchnote_TC.xlsx         # TC 생성 결과
+├── data/
+│   └── last_patch.json       # 마지막 처리 버전 기록
+├── .github/
+│   └── workflows/
+│       └── weekly-patch.yml  # GitHub Actions 자동 실행 워크플로우
 └── requirements.txt
+```
+
+---
+
+## 자동화 실행 (GitHub Actions)
+
+패치 감지부터 TC 생성, GitHub 커밋까지 자동으로 실행됩니다.
+
+| 항목 | 내용 |
+|------|------|
+| 자동 실행 | 매주 수요일 09:00 KST |
+| 감지 방식 | `data/last_patch.json`에 기록된 버전과 비교 |
+| 새 패치 없으면 | 파이프라인 즉시 종료 (불필요한 실행 방지) |
+| 새 패치 있으면 | 크롤링 → 파싱 → TC생성 → 자동 커밋 → Streamlit 갱신 |
+
+**수동 실행 방법:**
+GitHub 저장소 → Actions 탭 → "이터널리턴 패치노트 자동 업데이트" → Run workflow
+
+**통합 파이프라인 직접 실행:**
+
+```bash
+python pipeline.py           # 새 패치 있을 때만 실행
+python pipeline.py --force   # 강제 전체 실행
+python pipeline.py --pages 2 # 2페이지 크롤링
 ```
 
 ---
