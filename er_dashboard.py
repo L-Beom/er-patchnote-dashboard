@@ -318,12 +318,11 @@ def chart_char_history_timeline(char_df: pd.DataFrame, char_name: str) -> go.Fig
 def main():
     st.set_page_config(
         page_title="이터널리턴 패치노트 대시보드",
-        page_icon="⚔️",
         layout="wide",
     )
 
     # ── 헤더
-    st.title("⚔️ 이터널리턴 패치노트 대시보드")
+    st.title("이터널리턴 패치노트 대시보드")
     st.caption("patchnote_changes.csv 기반 자동 분석")
 
     if not CSV_PATH.exists():
@@ -336,7 +335,7 @@ def main():
 
     # ── 사이드바 필터
     with st.sidebar:
-        st.header("🔧 필터")
+        st.header("필터")
         st.markdown("---")
 
         sel_versions = st.multiselect(
@@ -348,9 +347,7 @@ def main():
         )
         st.markdown("---")
         st.markdown("**범례**")
-        st.markdown(
-            f"🟢 버프 &nbsp;&nbsp; 🔴 너프 &nbsp;&nbsp; ⚪ 중립"
-        )
+        st.markdown("버프 / 너프 / 중립")
         st.markdown("---")
         st.caption("이터널리턴 패치노트 자동 파싱")
 
@@ -365,9 +362,9 @@ def main():
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("총 변경 건수",    f"{len(fdf):,}")
     k2.metric("영향 캐릭터 수",   f"{char_fdf['캐릭터'].nunique():,}")
-    k3.metric("🟢 버프",
+    k3.metric("버프",
               f"{(char_fdf['버프너프'] == '버프').sum():,}")
-    k4.metric("🔴 너프",
+    k4.metric("너프",
               f"{(char_fdf['버프너프'] == '너프').sum():,}")
     k5.metric("분석 패치 수",    f"{fdf['패치버전'].nunique()}")
 
@@ -377,12 +374,12 @@ def main():
     latest_ver, hotfix_flag, prio_df = build_priority_table(df)
 
     if not prio_df.empty:
-        badge = "🚨 **핫픽스**" if hotfix_flag else ""
-        st.subheader(f"🎯 이번 패치 테스트 우선순위  `{latest_ver}` {badge}")
+        badge = "**핫픽스**" if hotfix_flag else ""
+        st.subheader(f"이번 패치 테스트 우선순위  `{latest_ver}` {badge}")
         st.caption(
             "변경 전/후 수치 차이(%)를 기준으로 산정. "
             "너프 항목은 유저 체감이 크므로 1.5배 가중치 적용. "
-            "🔴 1~3위는 최우선 검증 대상."
+            "1~3위는 최우선 검증 대상."
         )
 
         def highlight_priority(row):
@@ -392,7 +389,10 @@ def main():
                 return ["background-color: #FEF9E7; color: black"] * len(row)
             return ["color: black"] * len(row)
 
-        show_n = st.slider("표시 건수", 5, min(50, len(prio_df)), min(20, len(prio_df)), key="prio_n")
+        if len(prio_df) >= 5:
+            show_n = st.slider("표시 건수", 5, min(50, len(prio_df)), min(20, len(prio_df)), key="prio_n")
+        else:
+            show_n = len(prio_df)
         styled = (
             prio_df.head(show_n)
             .style.apply(highlight_priority, axis=1)
@@ -418,13 +418,15 @@ def main():
         # 구분(버프/너프) 비율 요약
         col_s1, col_s2, col_s3 = st.columns(3)
         col_s1.metric("이번 패치 총 변경", len(prio_df))
-        col_s2.metric("🔴 너프 건수", (prio_df["구분"] == "너프").sum())
-        col_s3.metric("🟢 버프 건수", (prio_df["구분"] == "버프").sum())
+        col_s2.metric("너프 건수", (prio_df["구분"] == "너프").sum())
+        col_s3.metric("버프 건수", (prio_df["구분"] == "버프").sum())
+    else:
+        st.info("우선순위 데이터가 없습니다.")
 
     st.markdown("---")
 
     # ── 탭
-    tab1, tab2, tab3 = st.tabs(["📊 패치 개요", "🏆 캐릭터 순위", "🔍 캐릭터 검색"])
+    tab1, tab2, tab3 = st.tabs(["패치 개요", "캐릭터 순위", "캐릭터 검색"])
 
     # ────────────────── Tab 1: 패치 개요 ──────────────────────────────────────
     with tab1:
@@ -559,8 +561,8 @@ def main():
                 # 요약 메트릭
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("총 변경 수", len(char_df))
-                m2.metric("🟢 버프",     (char_df["버프너프"] == "버프").sum())
-                m3.metric("🔴 너프",     (char_df["버프너프"] == "너프").sum())
+                m2.metric("버프",     (char_df["버프너프"] == "버프").sum())
+                m3.metric("너프",     (char_df["버프너프"] == "너프").sum())
                 m4.metric("관련 패치 수", char_df["패치버전"].nunique())
 
                 # 히스토리 타임라인 차트
